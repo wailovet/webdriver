@@ -4,12 +4,15 @@ import (
 	"bytes"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -29,6 +32,10 @@ const (
 var userHomeDir, _ = os.UserHomeDir()
 
 var DefaultEdgeDriverPath = userHomeDir + "/gowebdriver/msedgedriver.exe"
+var SpareEdgeDriverPath = []string{
+	"msedgedriver.exe",
+	filepath.Join(currentPath(), "msedgedriver.exe"),
+}
 
 var edgeProcess *os.Process
 
@@ -37,12 +44,42 @@ func existFile(path string) bool {
 	return err == nil || os.IsExist(err)
 }
 
+func currentPath() string {
+	file, err := exec.LookPath(os.Args[0])
+	if err != nil {
+		return ""
+	}
+	path, err := filepath.Abs(file)
+	if err != nil {
+		return ""
+	}
+	i := strings.LastIndex(path, "/")
+	if i < 0 {
+		i = strings.LastIndex(path, "\\")
+	}
+	if i < 0 {
+		return ""
+	}
+	return string(path[0 : i+1])
+}
+
 var DefaultResourcePort = 30193
 
 func init() {
 	if !existFile(DefaultEdgeDriverPath) {
-		os.MkdirAll(userHomeDir+"/gowebdriver", 0777)
-		os.WriteFile(DefaultEdgeDriverPath, msedgedriver, 0777)
+		isInstall := false
+		for i := range SpareEdgeDriverPath {
+			if existFile(SpareEdgeDriverPath[i]) {
+				DefaultEdgeDriverPath = SpareEdgeDriverPath[i]
+				isInstall = true
+				break
+			}
+		}
+
+		if !isInstall {
+			os.MkdirAll(userHomeDir+"/gowebdriver", 0777)
+			os.WriteFile(DefaultEdgeDriverPath, msedgedriver, 0777)
+		}
 	}
 	go func() {
 		http.HandleFunc("/webdricer-static", func(w http.ResponseWriter, r *http.Request) {
@@ -87,7 +124,7 @@ func (w *WebDriver) SetDebug(debug bool) {
 func (w *WebDriver) StartSession() error {
 
 	go func() {
-		cmd := exec.Command(DefaultEdgeDriverPath, "--port="+strconv.Itoa(EdgeDriverPort), "--log-level=OFF")
+		cmd := exec.Command(DefaultEdgeDriverPath, "--port="+strconv.Itoa(EdgeDriverPort))
 		edgeProcess = cmd.Process
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout = &stdout
@@ -157,6 +194,12 @@ func (w *WebDriver) StartSession() error {
 	}
 
 	w.Println("StartSession:", raw)
+
+	merr := gjson.Get(raw, "value.error").String()
+	if merr != "" {
+		return errors.New(fmt.Sprint(merr, "::", gjson.Get(raw, "value.message").String()))
+	}
+
 	w.sessionId = gjson.Get(raw, "value.sessionId").String()
 
 	w.SetTimeout(300000)
@@ -187,7 +230,6 @@ func (w *WebDriver) Status() (string, error) {
 }
 
 func (w *WebDriver) SetUrl(url string) (string, error) {
-	w.Println("w.sessionId:", w.sessionId)
 	req := gorequest.New().Post("http://localhost:30192/session/" + w.sessionId + "/url")
 	_, raw, errs := req.Send(jsonEncode(map[string]string{"url": url})).End()
 	if errs != nil {

@@ -10,7 +10,12 @@ func TestNewWebDriver(t *testing.T) {
 	wd := NewWebDriver()
 	wd.SetDebug(false)
 
-	wd.StartSession()
+	err := wd.StartSession()
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	defer wd.StopSession()
 
 	wd.SetUrl("https://www.baidu.com")
