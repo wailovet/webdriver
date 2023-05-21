@@ -149,7 +149,7 @@ func (w *WebDriver) StartSession() error {
 		"--disable-dev-shm-usage",
 		"--disable-infobars",
 		"--disable-extensions",
-		"--disable-features=site-per-process",
+		"--disable-features=PreloadMediaEngagementData",
 		"--disable-hang-monitor",
 		"--disable-ipc-flooding-protection",
 		"--disable-popup-blocking",
